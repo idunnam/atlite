@@ -44,7 +44,8 @@ def get_features(cutout, module, features, tmpdir=None):
         datasets.append(feature_data)
 
     datasets = compute(*datasets)
-
+    print(datasets) ####
+    
     ds = xr.merge(datasets, compat="equals")
     for v in ds:
         ds[v].attrs["module"] = module

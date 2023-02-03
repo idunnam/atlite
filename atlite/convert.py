@@ -129,7 +129,7 @@ def convert_and_aggregate(
         if capacity_factor:
             res = da.mean("time").rename("capacity factor")
             res.attrs["units"] = "p.u."
-            return maybe_progressbar(res, show_progress, **dask_kwargs)
+            return maybe_progressbar(res, show_progress, **dask_kwargs), maybe_progressbar(da.assign_attrs({"units":"p.u."}).rename("capacity factor"), show_progress, **dask_kwargs)
         else:
             res = da.sum("time", keep_attrs=True)
             return maybe_progressbar(res, show_progress, **dask_kwargs)
