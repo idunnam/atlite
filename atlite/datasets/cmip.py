@@ -31,7 +31,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 features = {
-    "wind": ["wnd","b", "orog"],
+    #"wind": ["wnd","b", "orog"],
+    "wind": ["wnd", "z"],
     #"influx": ["influx", "outflux"],
     #"temperature": ["temperature"],
     #"runoff": ["runoff"],
@@ -134,26 +135,39 @@ def get_data_wind(esgf_params, cutout, **retrieval_params):
     v = _rename_and_fix_coords(cutout,dv)
     
     # create a slice of data based on altitude and cutout + add additional area (eg.10km) for interpolating
-    u = u.sel(lev=levs, time=slice(time_start,time_end), x=slice(bounds[0]-10, bounds[2]+10), y=slice(bounds[1]-10, bounds[3]+10))
-    v = v.sel(lev=levs, time=slice(time_start,time_end), x=slice(bounds[0]-10, bounds[2]+10), y=slice(bounds[1]-10, bounds[3]+10))
+    u = u.sel(lev=levs, time=slice(time_start,time_end), x=slice(bounds[0]-5, bounds[2]+5), y=slice(bounds[1]-5, bounds[3]+5))
+    u = u.assign_coords(time=times)
+    v = v.sel(lev=levs, time=slice(time_start,time_end), x=slice(bounds[0]-5, bounds[2]+5), y=slice(bounds[1]-5, bounds[3]+5))
+    v = v.assign_coords(time=times)
     
     
-     # interpolate based on orog x (lon) and y (lat) available coords
+    # interpolate based on orog x (lon) and y (lat) available coords
     u_mid = u.interp(x=cutout.data.x, y=cutout.data.y)
     v_mid = v.interp(x=cutout.data.x, y=cutout.data.y)
     
     #calculation of the wind speed
     wspd = np.sqrt(u_mid.ua*u_mid.ua + v_mid.va*v_mid.va)
     
+    _,a = xr.broadcast(wspd,wspd.lev)  ##z = a + (b-1.) * orog  # height relative to ground
+
+    z = a + (u_mid.b-1)*u_mid.orog
+
+    
     ds = u_mid
     ds['wnd'] = wspd
+    ds['z'] = z
 
-    ds = ds.drop_vars('lev_bnds')
-    ds = ds.drop_vars('b_bnds')
-    ds = ds.drop_vars('ua')
+    if "orog" in ds.data_vars:
+        ds = ds.drop_vars("orog")
+    if "b" in ds.data_vars:
+        ds = ds.drop_vars("b")
+    if "va" in ds.data_vars:
+        ds = ds.drop_vars("va")
+    if "ua" in ds.data_vars:
+        ds = ds.drop_vars("ua")
     
     
-    attr["variables"] = ["wind speed lvl"]
+    attr["variables"] = ["wind speed lvl", "z"]
     [attr.pop(key) for key in ["variant_label", "table_id", "variable"]]
     ds.attrs.update(attr)
     
@@ -195,15 +209,16 @@ def retrieve_data(esgf_params, coords, variables, chunks=None, tmpdir=None, lock
     with lock:
         for variable in variables:
             esgf_params["variable"] = variable
-            esgf_params['frequency'] = '6hr'
-            esgf_params['table_id'] = '6hrLev'  ####
+            if variable=="ua" or variable=="va":
+                esgf_params['frequency'] = '6hr'
+                esgf_params['table_id'] = '6hrLev'  ####
             search_results = search_ESGF(esgf_params)
             files = [
                 f.opendap_url
                 for f in search_results
                 if _year_in_file(f.opendap_url.split("_")[-1], years)
             ]
-            dsets.append(xr.open_mfdataset(files, chunks=chunks, combine='nested', concat_dim=["time"]))
+            dsets.append(xr.open_mfdataset(files, chunks=chunks or {}, combine='nested', concat_dim=["time"]))
     ds = xr.merge(dsets)
 
     ds.attrs = {**esgf_params}
@@ -242,6 +257,12 @@ def _rename_and_fix_coords(cutout, ds, add_lon_lat=True, add_ctime=False):
         ds = ds.drop_vars("lat_bnds")
     if "lon_bnds" in ds.data_vars:
         ds = ds.drop_vars("lon_bnds")
+        
+    if "lev_bnds" in ds.data_vars:
+        ds = ds.drop_vars("lev_bnds")
+    
+    if "b_bnds" in ds.data_vars:
+        ds = ds.drop_vars("b_bnds")
 
     ds = ds.assign_coords(time=ds.coords["time"].dt.floor(dt))
 
@@ -307,7 +328,8 @@ def get_data(cutout, feature, tmpdir, lock=None, **creation_parameters):
 
     esgf_params["frequency"] = freq
 
-    retrieval_params = {"chunks": cutout.chunks, "tmpdir": tmpdir, "lock": lock}
+    chunks = {"time": 10}
+    retrieval_params = {"chunks": chunks, "tmpdir": tmpdir, "lock": lock}
 
     func = globals().get(f"get_data_{feature}")
 

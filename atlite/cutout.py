@@ -158,11 +158,8 @@ class Cutout:
             )
 
         path = Path(path).with_suffix(".nc")
-        #chunks = cutoutparams.pop("chunks", {"time": 100})
-        if "cmip" in cutoutparams["module"]: # added - cmip
-            chunks = cutoutparams.pop("chunks", {"time": 10})
-        else:
-            chunks = cutoutparams.pop("chunks", {"time": 100})
+        chunks = cutoutparams.pop("chunks", {"time": 100})
+
             
         storable_chunks = {f"chunksize_{k}": v for k, v in (chunks or {}).items()}
         
